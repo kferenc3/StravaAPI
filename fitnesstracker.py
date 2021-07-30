@@ -14,8 +14,7 @@ ATHLETE_ID = '44086627'
 
 
 def exp_checker(exp):
-    exp_date = datetime.fromtimestamp(int(exp))
-    tdlt = exp_date - datetime.today()
+    tdlt = datetime.fromtimestamp(int(exp)) - datetime.today()
     if tdlt.seconds < 0:
         return('expired')
     elif tdlt.seconds > 0 and tdlt.seconds <= 600:
@@ -23,27 +22,16 @@ def exp_checker(exp):
     else:
         return('ok')
 
-if __name__ == '__main__':
-    print(exp_checker(EXPIRES_AT))
-
+def token_refresh():
+    client = Client().refresh_access_token(client_id=CLIENT_ID,client_secret=CLIENT_SECRET,refresh_token=REFRESH_TOKEN)
+    os.environ['ACCESS_TOKEN'] = client['access_token']
+    os.environ['EXPIRES_AT'] = client['expires_at']
+    return
 
 
 
 """
 client = Client()
-resp = client.refresh_access_token(client_id=CLIENT_ID,client_secret=CLIENT_SECRET,refresh_token=REFRESH_TOKEN)
-if str(resp['expires_at']) == os.environ.get('EXPIRES_AT'):
-    print('fuckyeh!')
-    ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
-    EXPIRES_AT = os.environ.get('EXPIRES_AT')
-else:
-    print('oh no!')
-    os.environ['ACCESS_TOKEN'] = resp['access_token']
-    os.environ['EXPIRES_AT'] = str(resp['expires_at'])
-
-ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
-EXPIRES_AT = os.environ.get('EXPIRES_AT')
-
 print(datetime.datetime.fromtimestamp(resp['expires_at']).strftime('%c'))
 "print(client.exchange_code_for_token(CLIENT_ID,CLIENT_SECRET,'f4c4298d384a98a1ea577b6f26d8b82f3ecfa497'))"
 resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer be5049433464c380396640451a3101d7a5cb920f'})
@@ -57,8 +45,6 @@ http://www.strava.com/oauth/authorize?client_id=47499&response_type=code&redirec
 
 
 
-
-
 aftr = datetime.datetime.today() - timedelta(days=7)
 acts = client.get_activities(after=aftr)
 actList = []
@@ -69,3 +55,6 @@ testact = client.get_activity(actList[0]).to_dict
 
 print(testact)
 """
+
+if __name__ == '__main__':
+    print(exp_checker(EXPIRES_AT))
