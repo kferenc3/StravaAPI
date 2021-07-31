@@ -29,7 +29,17 @@ def token_refresh():
     os.environ['ACCESS_TOKEN'] = resp['access_token']
     os.environ['EXPIRES_AT'] = str(resp['expires_at'])
     """SCRIPT HERE TO PERMANENTLY REPLACE THE VARIABLES"""
-    return
+    
+
+def get_activities():
+    """The aim for this function is to check the last activity in the DBd and fetch any new after that.
+    For now this will be a static 7 day fetch."""
+    client = Client()
+    aftr = datetime.datetime.today() - timedelta(days=7)
+    acts = client.get_activities(after=aftr)
+    actList = []
+    for i in acts:
+        actList.append(i.id)
 
 """resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN})"""
 
@@ -44,17 +54,6 @@ print (resp.json())
 
 http://www.strava.com/oauth/authorize?client_id=47499&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=force&scope=profile:read_all,activity:read_all
 
-
-
-aftr = datetime.datetime.today() - timedelta(days=7)
-acts = client.get_activities(after=aftr)
-actList = []
-for i in acts:
-    actList.append(i.id)
-
-testact = client.get_activity(actList[0]).to_dict
-
-print(testact)
 """
 
 if __name__ == '__main__':
