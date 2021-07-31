@@ -1,13 +1,15 @@
-import datetime
 from datetime import timedelta
 from datetime import datetime
 from stravalib.client import Client
 import os
+import time as t
 import requests
+import traceback
 
 CLIENT_ID = os.environ.get('CLIENT_ID')
 CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
 REFRESH_TOKEN = os.environ.get('REFRESH_TOKEN')
+"""ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')"""
 EXPIRES_AT = os.environ.get('EXPIRES_AT')
 REDIRECT_URL = 'localhost'
 ATHLETE_ID = '44086627'
@@ -15,32 +17,31 @@ ATHLETE_ID = '44086627'
 
 def exp_checker(exp):
     tdlt = datetime.fromtimestamp(int(exp)) - datetime.today()
-    if tdlt.seconds < 0:
+
+    if tdlt.seconds <= 600 or tdlt.days < 0:
         return('expired')
-    elif tdlt.seconds > 0 and tdlt.seconds <= 600:
-        return('10min')
     else:
         return('ok')
 
 def token_refresh():
-    client = Client().refresh_access_token(client_id=CLIENT_ID,client_secret=CLIENT_SECRET,refresh_token=REFRESH_TOKEN)
-    os.environ['ACCESS_TOKEN'] = client['access_token']
-    os.environ['EXPIRES_AT'] = client['expires_at']
+    client = Client()
+    resp = client.refresh_access_token(client_id=CLIENT_ID,client_secret=CLIENT_SECRET,refresh_token=REFRESH_TOKEN)
+    os.environ['ACCESS_TOKEN'] = resp['access_token']
+    os.environ['EXPIRES_AT'] = str(resp['expires_at'])
+    """SCRIPT HERE TO PERMANENTLY REPLACE THE VARIABLES"""
     return
 
-
+"""resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN})"""
 
 """
 client = Client()
 print(datetime.datetime.fromtimestamp(resp['expires_at']).strftime('%c'))
 "print(client.exchange_code_for_token(CLIENT_ID,CLIENT_SECRET,'f4c4298d384a98a1ea577b6f26d8b82f3ecfa497'))"
-resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer'})
+
 print (resp.json())
 
 
-{'access_token': 'f75fd3925535aa000e215b11e7b7cfb7de802cc9', 
-'refresh_token': '27788e030a96165708086f907250d3a77daecf28', 
-'expires_at': 1627598983}
+
 http://www.strava.com/oauth/authorize?client_id=47499&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=force&scope=profile:read_all,activity:read_all
 
 
@@ -57,4 +58,23 @@ print(testact)
 """
 
 if __name__ == '__main__':
-    print(exp_checker(EXPIRES_AT))
+    
+    try:
+        
+        exp = exp_checker(EXPIRES_AT)
+        if exp == 'ok':
+            "CODE COMES HERE"
+            print('OK')
+        else:
+            print('As the token will expire soon, it will be refreshed.')
+            print('.')
+            t.sleep(1)
+            token_refresh()
+            t.sleep(1)
+            print('.')
+            print('New token has been generated and credentials are refreshed.')
+    
+    except Exception:
+        print(traceback.format_exception(BaseException,BaseException,None))
+        print(datetime.now())
+
