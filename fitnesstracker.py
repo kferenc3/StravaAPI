@@ -1,11 +1,11 @@
 from datetime import timedelta
 from datetime import datetime
-from test import URL_BASE
 from stravalib.client import Client
 import os
 import time as t
 import requests
 import traceback
+import polyline
 
 CLIENT_ID = os.environ.get('CLIENT_ID')
 CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
@@ -23,6 +23,7 @@ def exp_checker(exp):
     if tdlt.seconds <= 600 or tdlt.days < 0:
         return('expired')
     else:
+        print('The token expires in %s minutes' % str(round(tdlt.seconds/60,0)))
         return('ok')
 
 def token_refresh():
@@ -49,6 +50,14 @@ def get_activities():
         actList.append(i.id)
     return actList
 
+def latlng_encoder(resp):
+    j = resp.json()
+    for i in j:
+        if i['type'] == 'latlng':
+            p = polyline.encode(i['data'])
+    return p
+
+
 """resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN})"""
 
 """
@@ -73,7 +82,6 @@ if __name__ == '__main__':
     try:
         exp = exp_checker(EXPIRES_AT)
         if exp == 'ok':
-            print('OK')
             print(get_activities())
 
         else:
