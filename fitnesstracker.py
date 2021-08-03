@@ -82,11 +82,11 @@ if __name__ == '__main__':
     try:
         exp = exp_checker(EXPIRES_AT)
         if exp == 'ok':
-            print(get_activities())
+            "print(get_activities())"
 
         else:
             token_refresh()
-            print(get_activities())
+            "print(get_activities())"
             
     except Exception:
         print(traceback.format_exception(BaseException,BaseException,None))
