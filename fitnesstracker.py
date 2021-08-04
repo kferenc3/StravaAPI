@@ -6,6 +6,8 @@ import time as t
 import requests
 import traceback
 import polyline
+import json
+import pandas as pd
 
 CLIENT_ID = os.environ.get('CLIENT_ID')
 CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
@@ -39,7 +41,7 @@ def token_refresh():
     os.system('token_replace.bat')
     
 
-def get_activities():
+def get_activitylist():
     """The aim for this function is to check the last activity in the DBd and fetch any new after that.
     For now this will be a static 7 day fetch."""
     client = Client(access_token=ACCESS_TOKEN)
@@ -56,6 +58,29 @@ def latlng_encoder(resp):
         if i['type'] == 'latlng':
             p = polyline.encode(i['data'])
     return p
+
+def get_segments(resp):
+    dat = json.load(resp)
+    headers = ['id', 'name', 'activity_type', 'distance', 'average_grade',
+                'maximum_grade', 'elevation_high', 'elevation_low', 'start_latitude', 'start_longitude', 
+                'end_latitude', 'end_longitude', 'climb_category', 'city', 'state', 'country',
+                'private', 'hazardous', 'starred']
+    renamedict = {'id':'segment_id','start_latitude': 'start_lat', 'start_longitude': 'start_lng',
+        'end_latitude':'end_lat', 'end_longitude':'end_lng','city':'seg_city', 
+        'state':'seg_state', 'country':'seg_country'}
+    df = pd.DataFrame()
+    keylist = []
+    for efforts in dat['segment_efforts']:
+        seg = efforts['segment']
+        df = df.append(pd.DataFrame.from_dict(seg))
+        for key in seg:
+            keylist.append(key)
+            
+    keylist = list(set(keylist))
+    l = [x for x in keylist if x not in headers]
+    df = df.drop_duplicates().drop(columns=l).filter(like='0',axis=0)
+    df = df.rename(columns=renamedict)
+    return df
 
 
 """resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN})"""
