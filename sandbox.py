@@ -1,6 +1,7 @@
 import os
 import json
 import pandas as pd
+from pandas.core.frame import DataFrame
 from polyline import encode
 import re
 import requests
@@ -19,26 +20,37 @@ with open('testresp.json','w') as f:
 f = open('testresp.json')
 dat = json.load(f)
 
-headers = ['segment_id', 'name', 'activity_type']
-""", 'distance', 'average_grade',
-            'maximum_grade', 'elevation_high', 'elevation_low', 'start_lat', 'start_lng', 
-            'end_lat', 'end_lng', 'climb_category', 'seg_city', 'seg_state', 'seg_country'
-            'private', 'hazardous', 'starred'
-               ]"""
+headers = ['id', 'name', 'activity_type', 'distance', 'average_grade',
+            'maximum_grade', 'elevation_high', 'elevation_low', 'start_latitude', 'start_longitude', 
+            'end_latitude', 'end_longitude', 'climb_category', 'city', 'state', 'country',
+            'private', 'hazardous', 'starred']
+renamedict = {'id':'segment_id','start_latitude': 'start_lat', 'start_longitude': 'start_lng',
+    'end_latitude':'end_lat', 'end_longitude':'end_lng','city':'seg_city', 'state':'seg_state', 'country':'seg_country'}
 
-data=[]
+"""for i in range(len(headers)):
+    print(list(headers[i]))
+    data = headers[i]=[]
+print(data)"""
+df = pd.DataFrame()
+keylist = []
 for efforts in dat['segment_efforts']:
-    seg = json.loads(json.dumps(efforts['segment']))
-    segment_id = seg['id']
-    name = seg['name']
-    activity_type = seg['activity_type']
-    data.append([segment_id, name, activity_type])
+    seg = efforts['segment']
+    df = df.append(pd.DataFrame.from_dict(seg))
+    for key in seg:
+        keylist.append(key)
+        
+keylist = list(set(keylist))
+l = [x for x in keylist if x not in headers]
+df = df.drop_duplicates().drop(columns=l).filter(like='0',axis=0)
+df = df.rename(columns=renamedict)
+df.to_csv('test.csv')
 
-print(data)
+""
 
-df = pd.DataFrame(data,columns=headers)
-df = df.drop_duplicates()
-print(df)
+"""df = pd.DataFrame(data,columns=headers)
+"""
+
+
 
 
 """f = open('testresponse.json',encoding='utf8')
