@@ -1,0 +1,9 @@
+segment,segment,segment_efforts,segment_efforts
+id,segment_id,id,segment_effort_id
+start_latitude, start_lat,seg_id,segment_id
+start_longitude, start_lng,activity.id,activity_id
+end_latitude,end_lat,athlete.id,athlete_id
+end_longitude,end_lng,average_heartrate,average_hr
+city,seg_city,max_heartrate,max_hr
+state,seg_state,,
+country,seg_country,,
