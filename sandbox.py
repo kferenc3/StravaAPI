@@ -5,6 +5,7 @@ from pandas.core.frame import DataFrame
 from polyline import encode
 import re
 import requests
+import csv
 
 
 ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
@@ -16,8 +17,8 @@ source = json.loads(resp)
 
 with open('testresp.json','w') as f:
     json.dump(source,f)
-    """
-f = open('testresp.json')
+    
+
 dat = json.load(f)
 
 headers = ['id', 'name', 'activity_type', 'distance', 'average_grade',
@@ -27,15 +28,18 @@ headers = ['id', 'name', 'activity_type', 'distance', 'average_grade',
 renamedict = {'id':'segment_id','start_latitude': 'start_lat', 'start_longitude': 'start_lng',
     'end_latitude':'end_lat', 'end_longitude':'end_lng','city':'seg_city', 'state':'seg_state', 'country':'seg_country'}
 
-"""for i in range(len(headers)):
+for i in range(len(headers)):
     print(list(headers[i]))
     data = headers[i]=[]
-print(data)"""
+print(data)
 df = pd.DataFrame()
 keylist = []
 for efforts in dat['segment_efforts']:
+    df = df.append(pd.json_normalize(efforts))
+    for key in efforts:
+        print(key, efforts[key])
     seg = efforts['segment']
-    df = df.append(pd.DataFrame.from_dict(seg))
+    df = df.append(pd.DataFrame.from_dict(efforts))
     for key in seg:
         keylist.append(key)
         
@@ -43,7 +47,56 @@ keylist = list(set(keylist))
 l = [x for x in keylist if x not in headers]
 df = df.drop_duplicates().drop(columns=l).filter(like='0',axis=0)
 df = df.rename(columns=renamedict)
+
+
+df.rename(columns={'segment.id': 'seg_id'},inplace=True)
+df = df.drop(list(df.filter(regex='segment*')),axis=1)
+
+
 df.to_csv('test.csv')
+
+def get_segments(resp):
+    dat = json.loads(resp)
+    headers = ['id', 'name', 'activity_type', 'distance', 'average_grade',
+                'maximum_grade', 'elevation_high', 'elevation_low', 'start_latitude', 'start_longitude', 
+                'end_latitude', 'end_longitude', 'climb_category', 'city', 'state', 'country',
+                'private', 'hazardous', 'starred']
+    renamedict = {'id':'segment_id','start_latitude': 'start_lat', 'start_longitude': 'start_lng',
+        'end_latitude':'end_lat', 'end_longitude':'end_lng','city':'seg_city', 
+        'state':'seg_state', 'country':'seg_country'}
+    df = pd.DataFrame()
+    for efforts in dat['segment_efforts']:
+        seg = efforts['segment']
+        df = df.append(pd.json_normalize(seg))
+            
+    keylist = list(df.columns.values)
+    l = [x for x in keylist if x not in headers]
+    df = df.drop(columns=l).filter(like='0',axis=0).drop_duplicates()
+    df = df.rename(columns=renamedict)
+    return df
+
+def get_segmentefforts(resp):
+    dat = json.loads(resp)
+    headers = ['id','seg_id','activity.id','athlete.id','elapsed_time','moving_time',
+    'start_date','start_date_local','distance','start_index','end_index','average_cadence',
+    'average_heartrate','max_heartrate','pr_rank','kom_rank','hidden']
+    renamedict = {'id':'segment_effort_id','seg_id':'segment_id','activity.id':'activity_id','athlete.id':'athlete_id',
+    'average_heartrate':'average_hr','max_heartrate':'max_hr'}
+    df = pd.DataFrame()
+    for efforts in dat['segment_efforts']:
+        df = df.append(pd.json_normalize(efforts))
+
+    df.rename(columns={'segment.id': 'seg_id'},inplace=True)
+    df = df.drop(list(df.filter(regex='segment*')),axis=1)
+    keylist = list(df.columns.values)
+    l = [x for x in keylist if x not in headers]
+    df = df.drop(columns=l).filter(like='0',axis=0)
+    df = df.rename(columns=renamedict)
+    return df
+
+
+
+"""
 
 ""
 
@@ -81,4 +134,61 @@ print(l)
 No latlng response: {'message': 'Resource Not Found', 'errors': []}
 """
 
+f = open('testresp.json')
 
+
+
+def segments_efforts(resp,typ,hdr,rnm):
+    dat = json.load(resp)
+    head = pd.read_csv(hdr)
+    head = pd.DataFrame(head).dropna()
+    headers = head[typ].tolist()
+    with open (rnm, mode='r') as f:
+        reader = csv.reader(f)
+        row1 = next(reader)
+        dictpos= [i for i,x in enumerate(row1) if x==typ]
+        renamedict = dict((rows[dictpos[0]],rows[dictpos[1]]) for rows in reader)
+    
+    
+    "renamedict = dcts[typ].to_dict()"
+    "print(renamedict)"
+    "['id', 'name', 'activity_type', 'distance', 'average_grade', 'maximum_grade', 'elevation_high', 'elevation_low', 'start_latitude', 'start_longitude', 'end_latitude', 'end_longitude', 'climb_category', 'city', 'state', 'country', 'private', 'hazardous', 'starred']"
+    
+    "{'id':'segment_id','start_latitude': 'start_lat', 'start_longitude': 'start_lng','end_latitude':'end_lat', 'end_longitude':'end_lng','city':'seg_city','state':'seg_state', 'country':'seg_country'}"
+    df = pd.DataFrame()
+    if typ == 'segment':
+        for efforts in dat['segment_efforts']:
+            seg = efforts['segment']
+            df = df.append(pd.json_normalize(seg))
+    elif typ == 'segment_efforts':
+        for efforts in dat['segment_efforts']:
+            df = df.append(pd.json_normalize(efforts))
+    else:
+        print('Invalid request type. The type: '+str(typ)+' is unknown.')
+      
+    keylist = list(df.columns.values)
+    l = [x for x in keylist if x not in headers]
+
+    df = df.drop(columns=l).filter(like='0',axis=0).drop_duplicates()
+    df = df.rename(columns=renamedict)
+    df.to_csv('test.csv')
+    return df
+
+def get_segmentefforts(resp):
+    dat = json.loads(resp)
+    headers = ['id','seg_id','activity.id','athlete.id','elapsed_time','moving_time', 'start_date','start_date_local','distance','start_index','end_index','average_cadence', 'average_heartrate','max_heartrate','pr_rank','kom_rank','hidden']
+    renamedict = {'id':'segment_effort_id','seg_id':'segment_id','activity.id':'activity_id','athlete.id':'athlete_id',
+    'average_heartrate':'average_hr','max_heartrate':'max_hr'}
+    df = pd.DataFrame()
+    for efforts in dat['segment_efforts']:
+        df = df.append(pd.json_normalize(efforts))
+
+    df.rename(columns={'segment.id': 'seg_id'},inplace=True)
+    df = df.drop(list(df.filter(regex='segment*')),axis=1)
+    keylist = list(df.columns.values)
+    l = [x for x in keylist if x not in headers]
+    df = df.drop(columns=l).filter(like='0',axis=0)
+    df = df.rename(columns=renamedict)
+    return df
+
+segments_efforts(f,'segment_efforts','headers.csv','dicts.csv')
