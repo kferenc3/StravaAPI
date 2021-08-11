@@ -3,7 +3,7 @@ id,id,name,distance,gear.id,id
 name,seg_id,type,moving_time,gear.primary,map.id
 activity_type,activity.id,workout_type,elapsed_time,gear.name,map.polyline
 distance,athlete.id,id,total_elevation_gain,gear.distance,
-average_grade,elapsed_time,external_id,id,,
+average_grade,elapsed_time,external_id,id,athlete.id,
 maximum_grade,moving_time,upload_id,average_speed,,
 elevation_high,start_date,start_date,max_speed,,
 elevation_low,start_date_local,start_date_local,average_cadence,,

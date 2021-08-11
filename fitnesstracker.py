@@ -49,8 +49,8 @@ def get_activitylist():
     return actList
 
 def get_activity(actid):
-    "for i in lst:"
-    resp = requests.get(URL_BASE + 'activities/'+ actid,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+    url = URL_BASE+'activities/'+str(actid)
+    resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
     return resp
 
 def latlng_encoder(resp):
@@ -69,6 +69,8 @@ def segments_efforts(resp,typ):
         df = pd.DataFrame(pd.json_normalize(dat))
         df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
         df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
+    elif typ in ['activity_metrics','gear','map']:
+        df = pd.DataFrame(pd.json_normalize(dat))
     elif typ == 'segment':
         for efforts in dat['segment_efforts']:
             seg = efforts['segment']
@@ -130,10 +132,10 @@ if __name__ == '__main__':
             ACCESS_TOKEN = token_refresh()
         else:
             ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
-        typelist = ['activity','segment','segment_efforts']
+        typelist = ['activity','activity_metrics','segment','segment_efforts','gear','map']
         activities = get_activitylist()
         for act in activities:
-            r = get_activity(str(act))
+            r = get_activity(act)
             df = pd.DataFrame()
             for i in range(len(typelist)):
                 df = segments_efforts(r,typelist[i])
@@ -142,7 +144,7 @@ if __name__ == '__main__':
                     segments= df_clean['segment_id'].tolist()
                     for seg in segments:
                         latlng_encoder(segment_stream(seg))
-                df_clean.to_csv(str(act)+'_'+str(typelist[i])+'.csv')
+                "df_clean.to_csv(str(act)+'_'+str(typelist[i])+'.csv')"
             
     except Exception:
         print(traceback.format_exception(BaseException,BaseException,None))
