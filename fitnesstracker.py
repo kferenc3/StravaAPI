@@ -38,7 +38,7 @@ def token_refresh():
     
 
 def get_activitylist():
-    """The aim for this function is to check the last activity in the DBd and fetch any new after that.
+    """The aim for this function is to check the last activity in the DB and fetch any new one after that.
     For now this will be a static 7 day fetch."""
     client = Client(access_token=ACCESS_TOKEN)
     aftr = datetime.today() - timedelta(days=7)
@@ -49,30 +49,29 @@ def get_activitylist():
     return actList
 
 def get_activity(actid):
-    "for i in lst:"
-    resp = requests.get(URL_BASE + 'activities/'+ actid,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+    url = URL_BASE+'activities/'+str(actid)
+    resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
     return resp
 
 def latlng_encoder(resp):
-    j = resp.json()
+    j = json.loads(resp)
     for i in j:
         if i['type'] == 'latlng':
             p = polyline.encode(i['data'])
     return p
 
-def segments_efforts(resp,typ,hdr,rnm):
-    dat = json.load(resp)
-    head = pd.read_csv(hdr)
-    head = pd.DataFrame(head).dropna()
-    headers = head[typ].tolist()
-    with open (rnm, mode='r') as f:
-        reader = csv.reader(f)
-        row1 = next(reader)
-        dictpos= [i for i,x in enumerate(row1) if x==typ]
-        renamedict = dict((rows[dictpos[0]],rows[dictpos[1]]) for rows in reader)
+def segments_efforts(resp,typ):
+    
+    dat = json.loads(resp)
 
     df = pd.DataFrame()
-    if typ == 'segment':
+    if typ == 'activity':
+        df = pd.DataFrame(pd.json_normalize(dat))
+        df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
+        df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
+    elif typ in ['activity_metrics','gear','map']:
+        df = pd.DataFrame(pd.json_normalize(dat))
+    elif typ == 'segment':
         for efforts in dat['segment_efforts']:
             seg = efforts['segment']
             df = df.append(pd.json_normalize(seg))
@@ -81,13 +80,30 @@ def segments_efforts(resp,typ,hdr,rnm):
             df = df.append(pd.json_normalize(efforts))
     else:
         print('Invalid request type. The type: '+str(typ)+' is unknown.')
-      
-    keylist = list(df.columns.values)
-    l = [x for x in keylist if x not in headers]
 
-    df = df.drop(columns=l).filter(like='0',axis=0).drop_duplicates()
-    df = df.rename(columns=renamedict)
     return df
+
+def df_reorg(datfr, hdr, rnm, typ):
+    df_src = datfr
+    head = pd.read_csv(hdr)
+    head = head[typ].dropna()
+    headers = head.tolist()
+    with open (rnm, mode='r') as f:
+        reader = csv.reader(f)
+        row1 = next(reader)
+        dictpos= [i for i,x in enumerate(row1) if x==typ]
+        renamedict = dict((rows[dictpos[0]],rows[dictpos[1]]) for rows in reader)
+    keylist = list(df_src.columns.values)
+    l = [x for x in keylist if x not in headers]
+    df = df_src.drop(columns=l).filter(like='0',axis=0).drop_duplicates()
+    df = df.rename(columns=renamedict)
+
+    return df
+
+def segment_stream(id):
+    url = URL_BASE + 'segments/'+str(id)+'/streams?keys=latlng'
+    r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+    return r
 
 """resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN})"""
 
@@ -116,14 +132,19 @@ if __name__ == '__main__':
             ACCESS_TOKEN = token_refresh()
         else:
             ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
+        typelist = ['activity','activity_metrics','segment','segment_efforts','gear','map']
         activities = get_activitylist()
-        r = get_activity(str(activities[0]))
-        print(activities)
-        """seg = pd.DataFrame()
-        seg = get_segments(r)
-        seg.to_csv('segments.csv')
-        se = get_segmentefforts(r)
-        se.to_csv('efforts.csv')"""
+        for act in activities:
+            r = get_activity(act)
+            df = pd.DataFrame()
+            for i in range(len(typelist)):
+                df = segments_efforts(r,typelist[i])
+                df_clean = df_reorg(df,'headers.csv','dicts.csv',typelist[i])
+                if typelist[i] == 'segment':
+                    segments= df_clean['segment_id'].tolist()
+                    for seg in segments:
+                        latlng_encoder(segment_stream(seg))
+                "df_clean.to_csv(str(act)+'_'+str(typelist[i])+'.csv')"
             
     except Exception:
         print(traceback.format_exception(BaseException,BaseException,None))

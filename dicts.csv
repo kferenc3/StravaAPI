@@ -1,9 +1,9 @@
-segment,segment,segment_efforts,segment_efforts
-id,segment_id,id,segment_effort_id
-start_latitude, start_lat,seg_id,segment_id
-start_longitude, start_lng,activity.id,activity_id
-end_latitude,end_lat,athlete.id,athlete_id
-end_longitude,end_lng,average_heartrate,average_hr
-city,seg_city,max_heartrate,max_hr
-state,seg_state,,
-country,seg_country,,
+segment,segment,segment_efforts,segment_efforts,activity,activity,activity_metrics,activity_metrics,gear,gear,map,map
+id,segment_id,id,segment_effort_id,name,act_name,id,activity_id,gear.id,gear_id,id,actsegment_id
+start_latitude, start_lat,seg_id,segment_id,type,activity_type,display_hide_heartrate_option,display_hide_hr,gear.primary,primary,map.id,map_id
+start_longitude, start_lng,activity.id,activity_id,id,activity_id,prefer_perceived_exertion,pref_perceived_exertion,gear.name,gear_name,map.polyline,polyline
+end_latitude,end_lat,athlete.id,athlete_id,start_latlng,start_latlng,device_name,device_name,gear.distance,distance,,
+end_longitude,end_lng,average_heartrate,average_hr,end_latlng,end_latlng,,,athlete.id,athlete_id,,
+city,seg_city,max_heartrate,max_hr,athlete.id,athlete_id,,,,,,
+state,seg_state,,,,,,,,,,
+country,seg_country,,,,,,,,,,
