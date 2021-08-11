@@ -10,14 +10,35 @@ import csv
 
 ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
 URL_BASE = 'https://www.strava.com/api/v3/'
+
+resp = requests.get('https://www.strava.com/api/v3/activities/5773389409',headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+
+df = pd.DataFrame(pd.json_normalize(json.loads(resp)))
+"df = df.append(pd.json_normalize(source))"
+head = pd.read_csv('headers.csv')
+head = head['activity'].dropna()
+headers = head.tolist()
+with open ('dicts.csv', mode='r') as f:
+    reader = csv.reader(f)
+    row1 = next(reader)
+    dictpos= [i for i,x in enumerate(row1) if x=='activity']
+    renamedict = dict((rows[dictpos[0]],rows[dictpos[1]]) for rows in reader)
+keylist = list(df.columns.values)
+l = [x for x in keylist if x not in headers]
+
+df = df.drop(columns=l).filter(like='0',axis=0)
+df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
+df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
+"""df = df.rename(columns=renamedict)
+
+print(df)"""
+
+
+
+
 """
-resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
-
-source = json.loads(resp)
-
 with open('testresp.json','w') as f:
-    json.dump(source,f)
-    
+    json.dump(source,f) 
 
 dat = json.load(f)
 
@@ -32,7 +53,7 @@ for i in range(len(headers)):
     print(list(headers[i]))
     data = headers[i]=[]
 print(data)
-df = pd.DataFrame()
+
 keylist = []
 for efforts in dat['segment_efforts']:
     df = df.append(pd.json_normalize(efforts))
@@ -132,7 +153,7 @@ l = polyline.decode(s)
 print(l)
 
 No latlng response: {'message': 'Resource Not Found', 'errors': []}
-"""
+
 
 f = open('testresp.json')
 
@@ -192,3 +213,4 @@ def get_segmentefforts(resp):
     return df
 
 segments_efforts(f,'segment_efforts','headers.csv','dicts.csv')
+"""
