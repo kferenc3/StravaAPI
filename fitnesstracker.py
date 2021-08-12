@@ -35,7 +35,6 @@ def token_refresh():
     dat.close
     os.system('token_replace.bat')
     return var
-    
 
 def get_activitylist():
     """The aim for this function is to check the last activity in the DB and fetch any new one after that.
@@ -48,8 +47,22 @@ def get_activitylist():
         actList.append(i.id)
     return actList
 
-def get_activity(actid):
-    url = URL_BASE+'activities/'+str(actid)
+def url_constructor(type, id=None):
+    if type == 'athlete':
+        url = URL_BASE+'athlete'
+    elif type == 'zones':
+        url = URL_BASE+'athlete/zones'
+    elif type == 'activity':
+        url = URL_BASE+'activities/'+str(id)
+    elif type == 'act_stream':
+        url = URL_BASE+'activities/'+str(id)+'/streams?keys=heartrate'
+    elif type == 'seg_stream':
+        url = URL_BASE+'segments/'+str(id)+'/streams?keys=latlng'
+    
+    return url
+
+def get_response(type, id=None):
+    url = url_constructor(type, id)
     resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
     return resp
 
@@ -60,24 +73,49 @@ def latlng_encoder(resp):
             p = polyline.encode(i['data'])
     return p
 
-def segments_efforts(resp,typ):
+def df_from_response(resp,typ):
     
     dat = json.loads(resp)
 
     df = pd.DataFrame()
+    
     if typ == 'activity':
         df = pd.DataFrame(pd.json_normalize(dat))
         df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
         df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
-    elif typ in ['activity_metrics','gear','map']:
+    
+    elif typ in ['activity_metrics','gear','map','athlete']:
         df = pd.DataFrame(pd.json_normalize(dat))
+    
     elif typ == 'segment':
         for efforts in dat['segment_efforts']:
             seg = efforts['segment']
             df = df.append(pd.json_normalize(seg))
+    
     elif typ == 'segment_efforts':
         for efforts in dat['segment_efforts']:
             df = df.append(pd.json_normalize(efforts))
+    
+    elif typ == 'splits':
+        split_type = []
+        actid = dat['id']
+        for splits in dat['splits_metric']:
+            df = df.append(pd.json_normalize(splits))
+            split_type.append('splits_metrics')
+        for splits in dat['splits_standard']:
+            df = df.append(pd.json_normalize(splits))
+            split_type.append('splits_standard')
+        df['split_type'] = split_type
+        df['activity_id'] = actid
+    
+    elif typ == 'laps':
+        for lap in dat['laps']:
+            df = df.append(pd.json_normalize(lap))
+
+    elif typ == 'best_efforts':
+        for bf in dat['best_efforts']:
+            df = df.append(pd.json_normalize(bf))
+    
     else:
         print('Invalid request type. The type: '+str(typ)+' is unknown.')
 
@@ -132,19 +170,20 @@ if __name__ == '__main__':
             ACCESS_TOKEN = token_refresh()
         else:
             ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
-        typelist = ['activity','activity_metrics','segment','segment_efforts','gear','map']
+        typelist = ['activity','activity_metrics','segment','segment_efforts','gear','map', 'athlete','splits','laps','best_efforts']
         activities = get_activitylist()
         for act in activities:
-            r = get_activity(act)
+            r = get_response('activity',act)
             df = pd.DataFrame()
             for i in range(len(typelist)):
-                df = segments_efforts(r,typelist[i])
+                df = df_from_response(r,typelist[i])
                 df_clean = df_reorg(df,'headers.csv','dicts.csv',typelist[i])
                 if typelist[i] == 'segment':
                     segments= df_clean['segment_id'].tolist()
                     for seg in segments:
-                        latlng_encoder(segment_stream(seg))
-                "df_clean.to_csv(str(act)+'_'+str(typelist[i])+'.csv')"
+                        latlng_encoder(get_response('seg_stream',seg))
+        ath = get_response('athlete')
+        df_ath = df_from_response(ath,'athlete')
             
     except Exception:
         print(traceback.format_exception(BaseException,BaseException,None))
