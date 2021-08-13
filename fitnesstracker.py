@@ -1,6 +1,7 @@
 from datetime import timedelta
 from datetime import datetime
-from stravalib.client import Client
+from stravalib import Client
+import time as t
 import os
 import requests
 import traceback
@@ -36,15 +37,28 @@ def token_refresh():
     os.system('token_replace.bat')
     return var
 
+def ratelimit_checker(resp):
+    limits = resp.headers['X-RateLimit-Usage'].split(',')
+    if int(limits[0]) >= 95:
+        t.sleep(60)
+        print('Due to high usage suspending run for 1 minute')
+    elif int(limits[1]) >= 990:
+        print('Today\'s limit reached. No more requests')
+        exit()
+    else:
+        return limits
+
 def get_activitylist():
     """The aim for this function is to check the last activity in the DB and fetch any new one after that.
     For now this will be a static 7 day fetch."""
-    client = Client(access_token=ACCESS_TOKEN)
-    aftr = datetime.today() - timedelta(days=7)
-    acts = client.get_activities(after=aftr)
+    
+    aftr = (datetime.today() - timedelta(days=7)).timestamp()
+    url = url_constructor('activity_list')+str(aftr)
+    r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
+    acts = json.loads(r.text)
     actList = []
     for i in acts:
-        actList.append(i.id)
+        actList.append(i['id'])
     return actList
 
 def url_constructor(type, id=None):
@@ -58,15 +72,18 @@ def url_constructor(type, id=None):
         url = URL_BASE+'activities/'+str(id)+'/streams?keys=heartrate'
     elif type == 'seg_stream':
         url = URL_BASE+'segments/'+str(id)+'/streams?keys=latlng'
+    elif type == 'activity_list':
+        url=URL_BASE+'/athlete/activities?after='
     
     return url
 
 def get_response(type, id=None):
     url = url_constructor(type, id)
-    resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+    resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
     return resp
 
 def latlng_encoder(resp):
+    resp = resp.text
     j = json.loads(resp)
     for i in j:
         if i['type'] == 'latlng':
@@ -74,11 +91,12 @@ def latlng_encoder(resp):
     return p
 
 def df_from_response(resp,typ):
-    
+    resp = resp.text
     dat = json.loads(resp)
+    if 'message' in dat:
+        t.sleep(60)
 
     df = pd.DataFrame()
-    
     if typ == 'activity':
         df = pd.DataFrame(pd.json_normalize(dat))
         df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
@@ -115,6 +133,13 @@ def df_from_response(resp,typ):
     elif typ == 'best_efforts':
         for bf in dat['best_efforts']:
             df = df.append(pd.json_normalize(bf))
+    
+    elif typ == 'clubs':
+        for club in dat['clubs']:
+            df = df.append(pd.json_normalize(club))
+    
+    elif typ == 'zones':
+        df = pd.json_normalize(dat['heart_rate']['zones'])
     
     else:
         print('Invalid request type. The type: '+str(typ)+' is unknown.')
@@ -170,22 +195,33 @@ if __name__ == '__main__':
             ACCESS_TOKEN = token_refresh()
         else:
             ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
-        typelist = ['activity','activity_metrics','segment','segment_efforts','gear','map', 'athlete','splits','laps','best_efforts']
+        ath = get_response('athlete')
+        print(ratelimit_checker(ath))        
+        athletetype = ['athlete','clubs']
+        for at in athletetype:
+            df_ath = df_from_response(ath,at)
+            if at == 'athlete':
+                athid = df_ath['id'].values
+            df_ath = df_reorg(df_ath,'headers.csv','dicts.csv',at)
+        activitytype = ['activity','activity_metrics','segment','segment_efforts','gear','map','splits','laps','best_efforts']
         activities = get_activitylist()
         for act in activities:
             r = get_response('activity',act)
             df = pd.DataFrame()
-            for i in range(len(typelist)):
-                df = df_from_response(r,typelist[i])
-                df_clean = df_reorg(df,'headers.csv','dicts.csv',typelist[i])
-                if typelist[i] == 'segment':
+            for typ in activitytype:
+                df = df_from_response(r,typ)
+                df_clean = df_reorg(df,'headers.csv','dicts.csv',typ)
+                if typ == 'segment':
                     segments= df_clean['segment_id'].tolist()
                     for seg in segments:
-                        latlng_encoder(get_response('seg_stream',seg))
-        ath = get_response('athlete')
-        df_ath = df_from_response(ath,'athlete')
+                        latlng_encoder(get_response('seg_stream',seg))       
+        z = get_response('zones')
+        zone_df = df_from_response(z,'zones')
+        zone_df['athlete_id'] = str(athid[0])
+        zone_df['zone_type'] ='heart_rate'
+        print(ratelimit_checker(r))
             
     except Exception:
-        print(traceback.format_exception(BaseException,BaseException,None))
+        traceback.print_exception()
         print(datetime.now())
 

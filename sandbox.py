@@ -1,12 +1,12 @@
 from datetime import datetime
+from datetime import timedelta
 import os
-import json
 import pandas as pd
 from pandas.core.frame import DataFrame
 from polyline import encode
-import re
 import requests
-import csv
+import json
+import time as t
 
 
 ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
@@ -14,14 +14,30 @@ URL_BASE = 'https://www.strava.com/api/v3/'
 
 
 "url = URL_BASE+'athlete'"
-url=URL_BASE+'/athlete'
-resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+aftr = (datetime.today() - timedelta(days=7)).timestamp()
+url=URL_BASE+'/athlete/activities?after='+str(aftr)
 
-dat = json.loads(resp)
-df = pd.DataFrame()
-df = df.append(pd.json_normalize(dat))
+r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
+limits = r.headers['X-RateLimit-Usage'].split(',')
+if int(limits[0]) >= 95:
+    t.sleep(60)
+    print('Due to high rate limit suspending run for 1 minute')
+elif int(limits[1]) >= 990:
+    print('Today\'s limit reached. No more requests')
+    exit()
+else:
+    print('Only %s requests are used. Good to go!' % str(limits[0]))
+    print('Daily usage (out of a 1000): %s' % str(limits[1]))
 
-df.to_csv('best_efforts.csv')
+acts = json.loads(r.text)
+actList = []
+for i in acts:
+    actList.append(i['id'])
+
+
+print(actList)
+
+
 
 
 """url = URL_BASE + 'segments/'+str(id)+'/streams?keys=latlng'
