@@ -59,6 +59,7 @@ def get_activitylist():
     actList = []
     for i in acts:
         actList.append(i['id'])
+    print(actList)    
     return actList
 
 def url_constructor(type, id=None):
@@ -99,8 +100,12 @@ def df_from_response(resp,typ):
     df = pd.DataFrame()
     if typ == 'activity':
         df = pd.DataFrame(pd.json_normalize(dat))
-        df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
-        df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
+        if (df['start_latlng'].str.len()!=0).values:
+            df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
+            df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
+        else:
+            df[['start_lat','start_lng']] = pd.DataFrame([['NULL','NULL']],index=df.index)
+            df[['end_lat','end_lng']] = pd.DataFrame([['NULL','NULL']],index=df.index)
     
     elif typ in ['activity_metrics','gear','map','athlete']:
         df = pd.DataFrame(pd.json_normalize(dat))
@@ -115,24 +120,26 @@ def df_from_response(resp,typ):
             df = df.append(pd.json_normalize(efforts))
     
     elif typ == 'splits':
-        split_type = []
-        actid = dat['id']
-        for splits in dat['splits_metric']:
-            df = df.append(pd.json_normalize(splits))
-            split_type.append('splits_metrics')
-        for splits in dat['splits_standard']:
-            df = df.append(pd.json_normalize(splits))
-            split_type.append('splits_standard')
-        df['split_type'] = split_type
-        df['activity_id'] = actid
+        if 'splits_metric' in dat:
+            split_type = []
+            actid = dat['id']
+            for splits in dat['splits_metric']:
+                df = df.append(pd.json_normalize(splits))
+                split_type.append('splits_metrics')
+            for splits in dat['splits_standard']:
+                df = df.append(pd.json_normalize(splits))
+                split_type.append('splits_standard')
+            df['split_type'] = split_type
+            df['activity_id'] = actid
     
     elif typ == 'laps':
         for lap in dat['laps']:
             df = df.append(pd.json_normalize(lap))
 
     elif typ == 'best_efforts':
-        for bf in dat['best_efforts']:
-            df = df.append(pd.json_normalize(bf))
+        if 'best_efforts' in dat:
+            for bf in dat['best_efforts']:
+                df = df.append(pd.json_normalize(bf))
     
     elif typ == 'clubs':
         for club in dat['clubs']:
@@ -211,10 +218,11 @@ if __name__ == '__main__':
             for typ in activitytype:
                 df = df_from_response(r,typ)
                 df_clean = df_reorg(df,'headers.csv','dicts.csv',typ)
-                if typ == 'segment':
+                if typ == 'segment' and 'segment_id' in df_clean:
                     segments= df_clean['segment_id'].tolist()
                     for seg in segments:
-                        latlng_encoder(get_response('seg_stream',seg))       
+                        latlng_encoder(get_response('seg_stream',seg))     
+                df_clean.to_csv(typ+'-'+str(act)+'.csv')  
         z = get_response('zones')
         zone_df = df_from_response(z,'zones')
         zone_df['athlete_id'] = str(athid[0])
