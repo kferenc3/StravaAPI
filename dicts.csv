@@ -5,7 +5,7 @@ start_longitude, start_lng,activity.id,activity_id,id,activity_id,prefer_perceiv
 end_latitude,end_lat,athlete.id,athlete_id,start_latlng,start_latlng,device_name,device_name,gear.distance,distance,,,city,athlete_city,,,average_heartrate,average_hr,,,city,club_city
 end_longitude,end_lng,average_heartrate,average_hr,end_latlng,end_latlng,,,athlete.id,athlete_id,,,state,athlete_state,,,max_heartrate,max_hr,,,state,club_state
 city,seg_city,max_heartrate,max_hr,athlete.id,athlete_id,,,,,,,country,athlete_country,,,activity.id,activity_id,,,country,club_country
-state,seg_state,,,,,,,,,,,,,,,,,,,private,private
+state,seg_state,,,,,,,,,,,measurement_preference,measurement_pref,,,,,,,private,private
 country,seg_country,,,,,,,,,,,,,,,,,,,member_count,member_count
 ,,,,,,,,,,,,,,,,,,,,featured,featured
 ,,,,,,,,,,,,,,,,,,,,verified,verified
