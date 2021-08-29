@@ -1,13 +1,16 @@
 from datetime import datetime
 from datetime import timedelta
 import os
+from numpy import dtype
 import pandas as pd
-from pandas.core.frame import DataFrame
 from polyline import encode
 import requests
 import json
 import time as t
 import csv
+
+import sqlalchemy
+import DBfunctions
 
 
 ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
@@ -16,7 +19,7 @@ URL_BASE = 'https://www.strava.com/api/v3/'
 
 "url = URL_BASE+'athlete'"
 aftr = (datetime.today() - timedelta(days=7)).timestamp()
-url=URL_BASE+'/activities/5800395913'
+url=URL_BASE+'/activities/2516725538'
 
 'gps:5790079526'
 'treadmill:5800282979'
@@ -50,8 +53,8 @@ def df_from_response(resp,typ):
             df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
             df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
         else:
-            df[['start_lat','start_lng']] = pd.DataFrame([['NULL','NULL']],index=df.index)
-            df[['end_lat','end_lng']] = pd.DataFrame([['NULL','NULL']],index=df.index)
+            df[['start_lat','start_lng']] = pd.DataFrame([[None,None]],index=df.index)
+            df[['end_lat','end_lng']] = pd.DataFrame([[None,None]],index=df.index)
         print('Activity!')
     
     elif typ in ['activity_metrics','gear','map','athlete']:
@@ -90,8 +93,9 @@ def df_from_response(resp,typ):
             df['activity_id'] = actid
     
     elif typ == 'laps':
-        for lap in dat['laps']:
-            df = df.append(pd.json_normalize(lap))
+        if 'laps' in dat:
+            for lap in dat['laps']:
+                df = df.append(pd.json_normalize(lap))
 
     elif typ == 'best_efforts':
         if 'best_efforts' in dat:
@@ -140,9 +144,15 @@ if __name__ == '__main__':
         df_clean = df_reorg(df,'headers.csv','dicts.csv',typ)
         if typ == 'segment' and 'segment_id' in df_clean:
             segments= df_clean['segment_id'].tolist()
-            """for seg in segments:
-                latlng_encoder(get_response('seg_stream',seg)) """   
-
+        elif typ=='activity':
+            df_clean.to_csv('act.csv')
+            session, engine, metadata = DBfunctions.db_connect()
+            df_clean.to_sql('activity',con=engine,schema='dwh', if_exists='append',index=False)
+            """table = sqlalchemy.Table('activity',metadata,autoload=True,autoload_with=engine,schema='dwh')
+            with session.begin():
+                session.execute(table.insert(),df_clean.to_dict('records'))
+            with engine.connect() as conn:
+                df_clean.to_sql('activity',con=engine.connect(),schema='dwh',if_exists='replace')   """
 
 
 
@@ -152,7 +162,7 @@ url = URL_BASE + 'athlete/zones'
 url = URL_BASE + 'activities/'+str(actid)
 url = URL_BASE + 'activities/'+str(actid)+'/streams?keys=heartrate'"""
 
-def url_constructor(type, id):
+"""def url_constructor(type, id):
     if type == 'athlete':
         url = URL_BASE+'athlete'
     elif type == 'zones':
@@ -162,7 +172,7 @@ def url_constructor(type, id):
     elif type == 'act_stream':
         url = URL_BASE+'activities/'+str(id)+'/streams?keys=heartrate'
     elif type == 'seg_stream':
-        url = URL_BASE+'segments/'+str(id)+'/streams?keys=latlng'
+        url = URL_BASE+'segments/'+str(id)+'/streams?keys=latlng'"""
 
 """
 streams?keys=latlng'

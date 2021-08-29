@@ -1,5 +1,6 @@
 from datetime import timedelta
 from datetime import datetime
+import numpy
 from stravalib import Client
 import time as t
 import os
@@ -9,6 +10,7 @@ import polyline
 import json
 import pandas as pd
 import csv
+import DBfunctions
 
 CLIENT_ID = os.environ.get('CLIENT_ID')
 CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
@@ -51,15 +53,14 @@ def ratelimit_checker(resp):
 def get_activitylist():
     """The aim for this function is to check the last activity in the DB and fetch any new one after that.
     For now this will be a static 7 day fetch."""
-    
-    aftr = (datetime.today() - timedelta(days=7)).timestamp()
-    url = url_constructor('activity_list')+str(aftr)
+    "(datetime.today() - timedelta(days=7)).timestamp()"
+    aftr = DBfunctions.extract_date() 
+    url = url_constructor('activity_list')+str(aftr)+'&per_page=10'
     r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
     acts = json.loads(r.text)
     actList = []
     for i in acts:
-        actList.append(i['id'])
-    print(actList)    
+        actList.append(i['id'])   
     return actList
 
 def url_constructor(type, id=None):
@@ -104,8 +105,8 @@ def df_from_response(resp,typ):
             df[['start_lat','start_lng']] = pd.DataFrame(df.start_latlng.tolist(), index=df.index)
             df[['end_lat','end_lng']] = pd.DataFrame(df.end_latlng.tolist(), index=df.index)
         else:
-            df[['start_lat','start_lng']] = pd.DataFrame([['NULL','NULL']],index=df.index)
-            df[['end_lat','end_lng']] = pd.DataFrame([['NULL','NULL']],index=df.index)
+            df[['start_lat','start_lng']] = pd.DataFrame([[None,None]],index=df.index)
+            df[['end_lat','end_lng']] = pd.DataFrame([[None,None]],index=df.index)
     
     elif typ in ['activity_metrics','gear','map','athlete']:
         df = pd.DataFrame(pd.json_normalize(dat))
@@ -133,8 +134,9 @@ def df_from_response(resp,typ):
             df['activity_id'] = actid
     
     elif typ == 'laps':
-        for lap in dat['laps']:
-            df = df.append(pd.json_normalize(lap))
+        if 'laps' in dat:
+            for lap in dat['laps']:
+                df = df.append(pd.json_normalize(lap))
 
     elif typ == 'best_efforts':
         if 'best_efforts' in dat:
@@ -167,13 +169,27 @@ def df_reorg(datfr, hdr, rnm, typ):
     l = [x for x in keylist if x not in headers]
     df = df_src.drop(columns=l).filter(like='0',axis=0).drop_duplicates()
     df = df.rename(columns=renamedict)
-
+    cities = DBfunctions.location_dict('city')
+    states = DBfunctions.location_dict('state')
+    countries = DBfunctions.location_dict('country')
+    df.replace(r"^\s*$",numpy.NaN,regex=True,inplace=True)
+    df.replace({"Magyarország": "Hungary"},inplace=True)
+    df.replace(cities,inplace=True)
+    df.replace(states,inplace=True)
+    df.replace(countries,inplace=True)
+    
     return df
 
 def segment_stream(id):
     url = URL_BASE + 'segments/'+str(id)+'/streams?keys=latlng'
     r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
     return r
+
+def df_init(r,t):
+    df = pd.DataFrame()
+    df = df_from_response(r,t)
+    df_clean = df_reorg(df,'headers.csv','dicts.csv',t)
+    return df_clean
 
 """resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN})"""
 
@@ -202,32 +218,53 @@ if __name__ == '__main__':
             ACCESS_TOKEN = token_refresh()
         else:
             ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
+        engine, metadata = DBfunctions.db_connect()
         ath = get_response('athlete')
         print(ratelimit_checker(ath))        
         athletetype = ['athlete','clubs']
         for at in athletetype:
-            df_ath = df_from_response(ath,at)
+            df_ath = df_init(ath,at)
             if at == 'athlete':
-                athid = df_ath['id'].values
-            df_ath = df_reorg(df_ath,'headers.csv','dicts.csv',at)
+                athid = df_ath['athlete_id'].values.tolist()
+                cnt, lst = DBfunctions.check_record(at,'athlete_id',athid,engine,metadata)
+                if cnt!=len(athid):
+                    df_ath = df_ath.loc[~df_ath['athlete_id'].isin(lst)]
+                    df_ath.to_sql(at,con=engine,schema='dwh', if_exists='append',index=False)
+                else:
+                    print('No new athlete to load!')
+            elif at == 'clubs':
+                clubid = df_ath['club_id'].values.tolist()
+                cnt, lst = DBfunctions.check_record(at,'club_id',clubid,engine,metadata)
+                if cnt!=len(clubid):
+                    df_ath = df_ath.loc[~df_ath['club_id'].isin(lst)]
+                    df_ath.to_sql(at,con=engine,schema='dwh', if_exists='append',index=False)
+                else:
+                    print('No new clubs to load!')
         activitytype = ['activity','activity_metrics','segment','segment_efforts','gear','map','splits','laps','best_efforts']
         activities = get_activitylist()
+        cnt, lst = DBfunctions.check_record('activity','activity_id',activities,engine,metadata)
+        print(lst)
+        activities = [x for x in activities if x not in lst]
+        print(activities)
         for act in activities:
             r = get_response('activity',act)
-            df = pd.DataFrame()
             for typ in activitytype:
-                df = df_from_response(r,typ)
-                df_clean = df_reorg(df,'headers.csv','dicts.csv',typ)
+                df_clean = df_init(r,typ)
                 if typ == 'segment' and 'segment_id' in df_clean:
-                    segments= df_clean['segment_id'].tolist()
+                    segments = df_clean['segment_id'].tolist()
+                    cnt, lst = DBfunctions.check_record('segments','segment_id',segments,engine,metadata)
+                    segments = [x for x in segments if x not in lst]
                     for seg in segments:
-                        latlng_encoder(get_response('seg_stream',seg))     
-                df_clean.to_csv(typ+'-'+str(act)+'.csv')  
+                        p = latlng_encoder(get_response('seg_stream',seg))
+                        df_map = pd.DataFrame({'actsegment_id': seg,'map_type':'segment','polyline': p})
+                        "print(df_map)"   
+                if typ == 'map':
+                    "print(df_clean)" 
         z = get_response('zones')
         zone_df = df_from_response(z,'zones')
         zone_df['athlete_id'] = str(athid[0])
         zone_df['zone_type'] ='heart_rate'
-        print(ratelimit_checker(r))
+        print(ratelimit_checker(z))
             
     except Exception:
         traceback.print_exception()
