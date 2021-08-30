@@ -1,51 +1,97 @@
-from datetime import datetime
 from datetime import timedelta
-import os
-from numpy import dtype
-import pandas as pd
-from polyline import encode
-import requests
-import json
+from datetime import datetime
+import numpy
+from stravalib import Client
 import time as t
+import os
+import requests
+import traceback
+import polyline
+import json
+import pandas as pd
 import csv
-
-import sqlalchemy
 import DBfunctions
 
-
-ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
+CLIENT_ID = os.environ.get('CLIENT_ID')
+CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
+REFRESH_TOKEN = os.environ.get('REFRESH_TOKEN')
+EXPIRES_AT = os.environ.get('EXPIRES_AT')
 URL_BASE = 'https://www.strava.com/api/v3/'
 
 
-"url = URL_BASE+'athlete'"
-aftr = (datetime.today() - timedelta(days=7)).timestamp()
-url=URL_BASE+'/activities/2516725538'
+def exp_checker(exp):
+    tdlt = datetime.fromtimestamp(int(exp)) - datetime.today()
+    if tdlt.seconds <= 600 or tdlt.days < 0:
+        return('expired')
+    else:
+        print('The token expires in %s minutes' % str(round(tdlt.seconds/60,0)))
+        return('ok')
 
-'gps:5790079526'
-'treadmill:5800282979'
-'wheigth training: 5800395913'
+def token_refresh():
+    client = Client()
+    resp = client.refresh_access_token(client_id=CLIENT_ID,client_secret=CLIENT_SECRET,refresh_token=REFRESH_TOKEN)
+    var = resp['access_token']
+    with open('dat', 'w') as dat:
+        for key in resp:
+            if key in ['access_token','expires_at']:
+                dat.write(key+' '+str(resp[key])+'\n')
+    dat.close
+    os.system('token_replace.bat')
+    return var
 
+def ratelimit_checker(resp):
+    limits = resp.headers['X-RateLimit-Usage'].split(',')
+    if int(limits[0]) >= 95:
+        t.sleep(60)
+        print('Due to high usage suspending run for 1 minute')
+    elif int(limits[1]) >= 990:
+        print('Today\'s limit reached. No more requests')
+        exit()
+    else:
+        return limits
 
-"""limits = r.headers['X-RateLimit-Usage'].split(',')
-if int(limits[0]) >= 95:
-    t.sleep(60)
-    print('Due to high rate limit suspending run for 1 minute')
-elif int(limits[1]) >= 990:
-    print('Today\'s limit reached. No more requests')
-    exit()
-else:
-    print('Only %s requests are used. Good to go!' % str(limits[0]))
-    print('Daily usage (out of a 1000): %s' % str(limits[1]))"""
+def get_activitylist():
+    aftr = DBfunctions.extract_date()
+    url = url_constructor('activity_list')+str(aftr)+'&per_page=10'
+    r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
+    acts = json.loads(r.text)
+    actList = []
+    for i in acts:
+        actList.append(i['id'])   
+    return actList
 
+def url_constructor(type, id=None):
+    if type == 'athlete':
+        url = URL_BASE+'athlete'
+    elif type == 'zones':
+        url = URL_BASE+'athlete/zones'
+    elif type == 'activity':
+        url = URL_BASE+'activities/'+str(id)
+    elif type == 'act_stream':
+        url = URL_BASE+'activities/'+str(id)+'/streams?keys=heartrate'
+    elif type == 'seg_stream':
+        url = URL_BASE+'segments/'+str(id)+'/streams?keys=latlng'
+    elif type == 'activity_list':
+        url=URL_BASE+'/athlete/activities?after='
+    
+    return url
 
-activitytype = ['activity','activity_metrics','segment','segment_efforts','gear','map','splits','laps','best_efforts']
+def get_response(type, id=None):
+    url = url_constructor(type, id)
+    resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
+    return resp
+
+def latlng_encoder(resp):
+    resp = resp.text
+    j = json.loads(resp)
+    for i in j:
+        if i['type'] == 'latlng':
+            p = polyline.encode(i['data'])
+    return p
 
 def df_from_response(resp,typ):
     resp = resp.text
     dat = json.loads(resp)
-    if 'message' in dat:
-        t.sleep(60)
-
     df = pd.DataFrame()
     if typ == 'activity':
         df = pd.DataFrame(pd.json_normalize(dat))
@@ -55,29 +101,18 @@ def df_from_response(resp,typ):
         else:
             df[['start_lat','start_lng']] = pd.DataFrame([[None,None]],index=df.index)
             df[['end_lat','end_lng']] = pd.DataFrame([[None,None]],index=df.index)
-        print('Activity!')
     
-    elif typ in ['activity_metrics','gear','map','athlete']:
+    elif typ in ['activity_metrics','gear','maps','athlete']:
         df = pd.DataFrame(pd.json_normalize(dat))
-        if typ=='activity_metrics':
-            print('activity_metrics')
-        elif typ=='gear':
-            print('gear')
-        elif typ=='map':
-            print('map')
-        else:
-            print('athlete')
     
-    elif typ == 'segment':
+    elif typ == 'segments':
         for efforts in dat['segment_efforts']:
             seg = efforts['segment']
             df = df.append(pd.json_normalize(seg))
-        print('segment')
     
-    elif typ == 'segment_efforts':
+    elif typ == 'segment_effort':
         for efforts in dat['segment_efforts']:
             df = df.append(pd.json_normalize(efforts))
-        print('segment_efforts')
     
     elif typ == 'splits':
         if 'splits_metric' in dat:
@@ -112,6 +147,7 @@ def df_from_response(resp,typ):
     else:
         print('Invalid request type. The type: '+str(typ)+' is unknown.')
 
+
     return df
 
 def df_reorg(datfr, hdr, rnm, typ):
@@ -128,58 +164,89 @@ def df_reorg(datfr, hdr, rnm, typ):
     l = [x for x in keylist if x not in headers]
     df = df_src.drop(columns=l).filter(like='0',axis=0).drop_duplicates()
     df = df.rename(columns=renamedict)
-
+    for r in ['city','state','country']:
+        df_filt = df.filter(regex=r+'$').drop_duplicates().dropna(axis=0)
+        engine, metadata = DBfunctions.db_connect()
+        if not df_filt.empty:
+            filt_lst = df_filt[df_filt.columns[0]].tolist()
+            if '' in filt_lst:
+                filt_lst.remove('')
+            if 'Magyarország' in filt_lst:
+                filt_lst.remove('Magyarország')
+            cnt, lst = DBfunctions.check_record(r,r+'_name',filt_lst,engine,metadata)
+            filt_lst = [x for x in filt_lst if x not in lst]
+            if len(filt_lst) >0:
+                for it in filt_lst:
+                    DBfunctions.insert_record(r,it,engine,metadata)
+    cities = DBfunctions.location_dict('city')
+    states = DBfunctions.location_dict('state')
+    countries = DBfunctions.location_dict('country')
+    df.replace(r"^\s*$",numpy.NaN,regex=True,inplace=True)
+    df.replace({"Magyarország": "Hungary"},inplace=True)
+    df.replace(cities,inplace=True)
+    df.replace(states,inplace=True)
+    df.replace(countries,inplace=True)
+    if 'actsegment_id' in df:
+        df['map_type'] = 'activity'
+    
     return df
 
+def segment_stream(id):
+    url = URL_BASE + 'segments/'+str(id)+'/streams?keys=latlng'
+    r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+    return r
 
-
+def hear_rate_stream(id):
+    url = URL_BASE + 'activities/'+str(id)+'/streams?keys=heartrate'
+    r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+    actid=[]
+    dist=[]
+    hr=[]
+    j = json.loads(r)
+    if 'message' in j:
+        print('No HR data')
+        df = pd.DataFrame()
+    else:
+        for i in j:
+            if i['type']=='distance':
+                actid = [id for x in i['data']]
+                dist=[x for x in i['data']]
+            elif i['type']=='heartrate':
+                hr=[x for x in i['data']]
+        df = pd.DataFrame({'activity_id': actid,'dist':dist,'heart_rate':hr})
+    return df
+    
+def df_init(r,t):
+    df = pd.DataFrame()
+    df = df_from_response(r,t)
+    df_clean = df_reorg(df,'headers.csv','dicts.csv',t)
+    return df_clean
 
 
 if __name__ == '__main__':
-    r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
-    acts = json.loads(r.text)
-    df = pd.DataFrame(pd.json_normalize(acts))
-    for typ in activitytype:
-        df = df_from_response(r,typ)
-        df_clean = df_reorg(df,'headers.csv','dicts.csv',typ)
-        if typ == 'segment' and 'segment_id' in df_clean:
-            segments= df_clean['segment_id'].tolist()
-        elif typ=='activity':
-            df_clean.to_csv('act.csv')
-            session, engine, metadata = DBfunctions.db_connect()
-            df_clean.to_sql('activity',con=engine,schema='dwh', if_exists='append',index=False)
-            """table = sqlalchemy.Table('activity',metadata,autoload=True,autoload_with=engine,schema='dwh')
-            with session.begin():
-                session.execute(table.insert(),df_clean.to_dict('records'))
-            with engine.connect() as conn:
-                df_clean.to_sql('activity',con=engine.connect(),schema='dwh',if_exists='replace')   """
+    
+    try:
+        exp = exp_checker(EXPIRES_AT)
+        if exp != 'ok':
+            ACCESS_TOKEN = token_refresh()
+        else:
+            ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
+        engine, metadata = DBfunctions.db_connect()
+        ath = get_response('athlete')
+        print(ratelimit_checker(ath))        
+        athletetype = ['athlete','clubs']
+        for at in athletetype:
+            df_ath = df_init(ath,at)
+        activitytype = ['activity','activity_metrics','segments','segment_effort','gear','maps','splits','laps','best_efforts']
+        activities = get_activitylist()
+        cnt, lst = DBfunctions.check_record('activity','activity_id',activities,engine,metadata)
+        activities = [x for x in activities if x not in lst]
+        for act in activities:
+            r = get_response('activity',act)
+            for typ in activitytype:
+                df_clean = df_init(r,typ)
+            df_hr = hear_rate_stream(act)
 
-
-
-"""url = URL_BASE + 'segments/'+str(id)+'/streams?keys=latlng'
-url = URL_BASE + 'athlete'
-url = URL_BASE + 'athlete/zones'
-url = URL_BASE + 'activities/'+str(actid)
-url = URL_BASE + 'activities/'+str(actid)+'/streams?keys=heartrate'"""
-
-"""def url_constructor(type, id):
-    if type == 'athlete':
-        url = URL_BASE+'athlete'
-    elif type == 'zones':
-        url = URL_BASE+'athlete/zones'
-    elif type == 'activity':
-        url = URL_BASE+'activities/'+str(id)
-    elif type == 'act_stream':
-        url = URL_BASE+'activities/'+str(id)+'/streams?keys=heartrate'
-    elif type == 'seg_stream':
-        url = URL_BASE+'segments/'+str(id)+'/streams?keys=latlng'"""
-
-"""
-streams?keys=latlng'
-BASE/athlete
-BASE/athlete/zones
-BASE/activities/ID/streams?keys=heartrate
-BASE/activities/ID/streams
-BASE/segments/id/streams?keys=latlng
-
-"""
+    except Exception:
+        traceback.print_exception()
+        print(datetime.now())
