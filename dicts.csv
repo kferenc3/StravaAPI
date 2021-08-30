@@ -1,8 +1,8 @@
-segment,segment,segment_efforts,segment_efforts,activity,activity,activity_metrics,activity_metrics,gear,gear,map,map,athlete,athlete,splits,splits,laps,laps,best_efforts,best_efforts,clubs,clubs
+segments,segments,segment_effort,segment_effort,activity,activity,activity_metrics,activity_metrics,gear,gear,maps,maps,athlete,athlete,splits,splits,laps,laps,best_efforts,best_efforts,clubs,clubs
 id,segment_id,id,segment_effort_id,name,act_name,id,activity_id,gear.id,gear_id,id,actsegment_id,id,athlete_id,elevation_difference,elevation_diff,id,lap_id,id,best_effort_id,id,club_id
-start_latitude, start_lat,seg_id,segment_id,type,activity_type,display_hide_heartrate_option,display_hide_hr,gear.primary,primary,map.id,map_id,firstname,first_name,average_grade_adjusted_speed,average_gap,name,lap_name,name,type,name,club_name
-start_longitude, start_lng,activity.id,activity_id,id,activity_id,prefer_perceived_exertion,pref_perceived_exertion,gear.name,gear_name,map.polyline,polyline,lastname,last_name,average_heartrate,average_hr,total_elevation_gain,total_elev_gain,activity.id,activity_id,sport_type,sport_type
-end_latitude,end_lat,athlete.id,athlete_id,start_latlng,start_latlng,device_name,device_name,gear.distance,distance,,,city,athlete_city,,,average_heartrate,average_hr,,,city,club_city
+start_latitude,start_lat,segment.id,segment_id,type,activity_type,display_hide_heartrate_option,display_hide_hr,gear.primary,primary,map.id,map_id,firstname,first_name,average_grade_adjusted_speed,average_gap,name,lap_name,name,type,name,club_name
+start_longitude,start_lng,activity.id,activity_id,id,activity_id,prefer_perceived_exertion,pref_perceived_exertion,gear.name,gear_name,map.polyline,polyline,lastname,last_name,average_heartrate,average_hr,total_elevation_gain,total_elev_gain,activity.id,activity_id,sport_type,sport_type
+end_latitude,end_lat,athlete.id,athlete_id,start_latlng,start_latlng,device_name,device_id,gear.distance,distance,,,city,athlete_city,,,average_heartrate,average_hr,,,city,club_city
 end_longitude,end_lng,average_heartrate,average_hr,end_latlng,end_latlng,,,athlete.id,athlete_id,,,state,athlete_state,,,max_heartrate,max_hr,,,state,club_state
 city,seg_city,max_heartrate,max_hr,athlete.id,athlete_id,,,,,,,country,athlete_country,,,activity.id,activity_id,,,country,club_country
 state,seg_state,,,,,,,,,,,measurement_preference,measurement_pref,,,,,,,private,private

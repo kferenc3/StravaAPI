@@ -1,6 +1,6 @@
-﻿segment,segment_efforts,activity,activity_metrics,gear,map,athlete,splits,laps,best_efforts,clubs
+﻿segments,segment_effort,activity,activity_metrics,gear,maps,athlete,splits,laps,best_efforts,clubs
 id,id,name,distance,gear.id,id,id,distance,id,id,id
-name,seg_id,type,moving_time,gear.primary,map.id,firstname,elapsed_time,name,name,name
+name,segment.id,type,moving_time,gear.primary,map.id,firstname,elapsed_time,name,name,name
 activity_type,activity.id,workout_type,elapsed_time,gear.name,map.polyline,lastname,elevation_difference,elapsed_time,elapsed_time,sport_type
 distance,athlete.id,id,total_elevation_gain,gear.distance,,bio,moving_time,moving_time,moving_time,city
 average_grade,elapsed_time,external_id,id,athlete.id,,city,split,start_date,start_date,state

@@ -2,7 +2,11 @@ import sqlalchemy
 import rsa
 import os
 import base64
-import traceback
+from datetime import datetime
+from datetime import time
+
+from sqlalchemy.sql.expression import insert
+
 
 
 def pwd_en_de_crypt(msg, mode):
@@ -61,7 +65,20 @@ def extract_date():
     stmt = sqlalchemy.select(sqlalchemy.func.max(table.c.start_date)).select_from(table)
     with engine.connect() as conn:
         for row in conn.execute(stmt):
-            return row[0]
+            dat = row[0]
+    aftr = datetime.combine(dat,time(12,0))
+    aftr = aftr.timestamp()
+    return aftr
+
+def insert_record(tbl,rec,eng,met):
+    table = sqlalchemy.Table(tbl,met,autoload=True,autoload_with=eng,schema='dwh')
+    col = tbl+'_name'
+    stmt = sqlalchemy.insert(table).values({col:rec})
+    with eng.connect() as conn:
+        result = conn.execute(stmt)
+        conn.commit()
+    return print(rec+' has been inserted in table '+tbl)
+
 
 
 """engine = db_connect()
