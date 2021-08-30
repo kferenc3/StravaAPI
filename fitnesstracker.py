@@ -42,8 +42,8 @@ def token_refresh():
 def ratelimit_checker(resp):
     limits = resp.headers['X-RateLimit-Usage'].split(',')
     if int(limits[0]) >= 95:
-        t.sleep(60)
-        print('Due to high usage suspending run for 1 minute')
+        print('Due to high usage restart needed in a few minutes')
+        exit()
     elif int(limits[1]) >= 990:
         print('Today\'s limit reached. No more requests')
         exit()
@@ -51,10 +51,7 @@ def ratelimit_checker(resp):
         return limits
 
 def get_activitylist():
-    """The aim for this function is to check the last activity in the DB and fetch any new one after that.
-    For now this will be a static 7 day fetch."""
-    "(datetime.today() - timedelta(days=7)).timestamp()"
-    aftr = DBfunctions.extract_date() 
+    aftr = DBfunctions.extract_date()
     url = url_constructor('activity_list')+str(aftr)+'&per_page=10'
     r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
     acts = json.loads(r.text)
@@ -95,9 +92,6 @@ def latlng_encoder(resp):
 def df_from_response(resp,typ):
     resp = resp.text
     dat = json.loads(resp)
-    if 'message' in dat:
-        t.sleep(60)
-
     df = pd.DataFrame()
     if typ == 'activity':
         df = pd.DataFrame(pd.json_normalize(dat))
@@ -108,15 +102,15 @@ def df_from_response(resp,typ):
             df[['start_lat','start_lng']] = pd.DataFrame([[None,None]],index=df.index)
             df[['end_lat','end_lng']] = pd.DataFrame([[None,None]],index=df.index)
     
-    elif typ in ['activity_metrics','gear','map','athlete']:
+    elif typ in ['activity_metrics','gear','maps','athlete']:
         df = pd.DataFrame(pd.json_normalize(dat))
     
-    elif typ == 'segment':
+    elif typ == 'segments':
         for efforts in dat['segment_efforts']:
             seg = efforts['segment']
             df = df.append(pd.json_normalize(seg))
     
-    elif typ == 'segment_efforts':
+    elif typ == 'segment_effort':
         for efforts in dat['segment_efforts']:
             df = df.append(pd.json_normalize(efforts))
     
@@ -169,14 +163,39 @@ def df_reorg(datfr, hdr, rnm, typ):
     l = [x for x in keylist if x not in headers]
     df = df_src.drop(columns=l).filter(like='0',axis=0).drop_duplicates()
     df = df.rename(columns=renamedict)
-    cities = DBfunctions.location_dict('city')
-    states = DBfunctions.location_dict('state')
-    countries = DBfunctions.location_dict('country')
+    for r in ['city','state','country']:
+        df_filt = df.filter(regex=r+'$').drop_duplicates().dropna(axis=0)
+        engine, metadata = DBfunctions.db_connect()
+        if not df_filt.empty:
+            filt_lst = df_filt[df_filt.columns[0]].tolist()
+            if '' in filt_lst:
+                filt_lst.remove('')
+            if 'Magyarország' in filt_lst:
+                filt_lst.remove('Magyarország')
+            cnt, lst = DBfunctions.check_record(r,r+'_name',filt_lst,engine,metadata)
+            filt_lst = [x for x in filt_lst if x not in lst]
+            if len(filt_lst) >0:
+                for it in filt_lst:
+                    DBfunctions.insert_record(r,it,engine,metadata)
+    df_filt = df.filter(regex='device_id').drop_duplicates().dropna(axis=0)
+    engine, metadata = DBfunctions.db_connect()
+    if not df_filt.empty:
+        filt_lst = df_filt[df_filt.columns[0]].tolist()
+        if '' in filt_lst:
+            filt_lst.remove('')
+        cnt, lst = DBfunctions.check_record('device','device_name',filt_lst,engine,metadata)
+        filt_lst = [x for x in filt_lst if x not in lst]
+        if len(filt_lst) >0:
+            for it in filt_lst:
+                DBfunctions.insert_record('device',it,engine,metadata)
+    rplc = ['city','state','country','device']
     df.replace(r"^\s*$",numpy.NaN,regex=True,inplace=True)
     df.replace({"Magyarország": "Hungary"},inplace=True)
-    df.replace(cities,inplace=True)
-    df.replace(states,inplace=True)
-    df.replace(countries,inplace=True)
+    for i in rplc:
+        rep_dict = DBfunctions.location_dict(i)
+        df.replace(rep_dict,inplace=True) 
+    if 'actsegment_id' in df:
+        df['map_type'] = 'activity'
     
     return df
 
@@ -185,30 +204,35 @@ def segment_stream(id):
     r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
     return r
 
+def hear_rate_stream(id):
+    url = URL_BASE + 'activities/'+str(id)+'/streams?keys=heartrate'
+    r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
+    actid=[]
+    dist=[]
+    hr=[]
+    j = json.loads(r)
+    if 'message' in j:
+        print('No HR data')
+        df = pd.DataFrame()
+    else:
+        for i in j:
+            if i['type']=='distance':
+                actid = [id for x in i['data']]
+                dist=[x for x in i['data']]
+            elif i['type']=='heartrate':
+                hr=[x for x in i['data']]
+        if len(actid)==len(dist)==len(hr):
+            df = pd.DataFrame({'activity_id': actid,'dist':dist,'heart_rate':hr})
+        else:
+            df = pd.DataFrame()
+    return df
+    
 def df_init(r,t):
     df = pd.DataFrame()
     df = df_from_response(r,t)
     df_clean = df_reorg(df,'headers.csv','dicts.csv',t)
     return df_clean
 
-"""resp = requests.get('https://www.strava.com/api/v3/activities/5675641194',headers={'Authorization':'Bearer ' + ACCESS_TOKEN})"""
-
-"""
-client = Client()
-print(datetime.datetime.fromtimestamp(resp['expires_at']).strftime('%c'))
-"print(client.exchange_code_for_token(CLIENT_ID,CLIENT_SECRET,'f4c4298d384a98a1ea577b6f26d8b82f3ecfa497'))"
-
-print (resp.json())
-
-BASE/athlete
-BASE/athlete/zones
-BASE/activities/ID/streams?keys=heartrate
-BASE/activities/ID/streams
-
-
-http://www.strava.com/oauth/authorize?client_id=47499&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=force&scope=profile:read_all,activity:read_all
-
-"""
 
 if __name__ == '__main__':
     
@@ -240,30 +264,48 @@ if __name__ == '__main__':
                     df_ath.to_sql(at,con=engine,schema='dwh', if_exists='append',index=False)
                 else:
                     print('No new clubs to load!')
-        activitytype = ['activity','activity_metrics','segment','segment_efforts','gear','map','splits','laps','best_efforts']
+        activitytype = ['activity','activity_metrics','segments','segment_effort','gear','maps','splits','laps','best_efforts']
         activities = get_activitylist()
         cnt, lst = DBfunctions.check_record('activity','activity_id',activities,engine,metadata)
-        print(lst)
         activities = [x for x in activities if x not in lst]
-        print(activities)
         for act in activities:
             r = get_response('activity',act)
             for typ in activitytype:
                 df_clean = df_init(r,typ)
-                if typ == 'segment' and 'segment_id' in df_clean:
+                if typ == 'segments' and 'segment_id' in df_clean:
                     segments = df_clean['segment_id'].tolist()
                     cnt, lst = DBfunctions.check_record('segments','segment_id',segments,engine,metadata)
                     segments = [x for x in segments if x not in lst]
+                    df_clean = df_clean.loc[df_clean['segment_id'].isin(segments)]
+                    df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                    print(str(typ)+' has been loaded!')
                     for seg in segments:
                         p = latlng_encoder(get_response('seg_stream',seg))
-                        df_map = pd.DataFrame({'actsegment_id': seg,'map_type':'segment','polyline': p})
-                        "print(df_map)"   
-                if typ == 'map':
-                    "print(df_clean)" 
+                        df_map = pd.DataFrame({'actsegment_id': seg,'map_type':'segment','polyline': p},index=[0])
+                        df_map.to_sql('maps',con=engine,schema='dwh',if_exists='append',index=False)
+                        print('Segment '+str(seg)+' map has been loaded!')
+                elif typ == 'gear':
+                    if 'gear_id' in df_clean:
+                        df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                        print(str(typ)+' has been loaded!')
+                elif typ == 'maps':
+                    df_test = df_clean.isna()
+                    if df_test['polyline'].values!=True:
+                        df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                        print('Activity map'+'-'+str(act)+' have been loaded!')
+                else:
+                    df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                    print(str(typ)+' has been loaded!')
+            df_hr = hear_rate_stream(act)
+            if not df_hr.empty:
+                df_hr.to_sql('heart_rate',con=engine,schema='dwh',if_exists='append',index=False)
         z = get_response('zones')
         zone_df = df_from_response(z,'zones')
         zone_df['athlete_id'] = str(athid[0])
         zone_df['zone_type'] ='heart_rate'
+        zone_df['zone_num'] = [1,2,3,4,5]
+        zone_df.to_sql('zones',con=engine,schema='dwh',if_exists='replace',index=False)
+        print('Zones have been loaded!')
         print(ratelimit_checker(z))
             
     except Exception:
