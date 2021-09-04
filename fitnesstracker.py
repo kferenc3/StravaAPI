@@ -216,13 +216,14 @@ def hear_rate_stream(id):
         df = pd.DataFrame()
     else:
         for i in j:
-            if i['type']=='distance':
+            if i['type']=='distance' or i['type']=='time':
                 actid = [id for x in i['data']]
                 dist=[x for x in i['data']]
+                metrtyp=[i['type'] for x in i['data']]
             elif i['type']=='heartrate':
                 hr=[x for x in i['data']]
         if len(actid)==len(dist)==len(hr):
-            df = pd.DataFrame({'activity_id': actid,'dist':dist,'heart_rate':hr})
+            df = pd.DataFrame({'activity_id': actid,'metric':dist,'heart_rate':hr,'metric_type':metrtyp})
         else:
             df = pd.DataFrame()
     return df
@@ -286,8 +287,13 @@ if __name__ == '__main__':
                         print('Segment '+str(seg)+' map has been loaded!')
                 elif typ == 'gear':
                     if 'gear_id' in df_clean:
-                        df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
-                        print(str(typ)+' has been loaded!')
+                        df_clean['gear_type'] = 'shoes'
+                        cnt, lst = DBfunctions.check_record('gear', 'gear_id',df_clean['gear_id'].tolist(),engine,metadata)
+                        if df_clean['gear_id'].values in lst:
+                            DBfunctions.update_record('gear',df_clean.to_dict('records'),'gear_id',engine,metadata)
+                        else:
+                            df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                            print(str(typ)+' has been loaded!')
                 elif typ == 'maps':
                     df_test = df_clean.isna()
                     if df_test['polyline'].values!=True:
