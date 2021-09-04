@@ -42,22 +42,26 @@ def token_refresh():
 def ratelimit_checker(resp):
     limits = resp.headers['X-RateLimit-Usage'].split(',')
     if int(limits[0]) >= 95:
-        print('Due to high usage restart needed in a few minutes')
-        exit()
+        wait_time = (15 - int(t.strftime('%M',(t.localtime())))%15)*60
+        print('Due to high usage restart needed in %s minutes' % str(round(wait_time/60,1)))
+        t.sleep(wait_time)
+        print('The wait is over')
     elif int(limits[1]) >= 990:
         print('Today\'s limit reached. No more requests')
         exit()
     else:
         return limits
 
-def get_activitylist():
+def get_activitylist(eng,met):
     aftr = DBfunctions.extract_date()
     url = url_constructor('activity_list')+str(aftr)+'&per_page=10'
     r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
     acts = json.loads(r.text)
     actList = []
     for i in acts:
-        actList.append(i['id'])   
+        actList.append(i['id'])
+    cnt, lst = DBfunctions.check_record('activity','activity_id',actList,eng,met)
+    actList = [x for x in actList if x not in lst]   
     return actList
 
 def url_constructor(type, id=None):
@@ -79,6 +83,7 @@ def url_constructor(type, id=None):
 def get_response(type, id=None):
     url = url_constructor(type, id)
     resp = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN})
+    ratelimit_checker(resp)
     return resp
 
 def latlng_encoder(resp):
@@ -204,7 +209,7 @@ def segment_stream(id):
     r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
     return r
 
-def hear_rate_stream(id):
+def hear_rate_stream(id, eng):
     url = URL_BASE + 'activities/'+str(id)+'/streams?keys=heartrate'
     r = requests.get(url,headers={'Authorization':'Bearer ' + ACCESS_TOKEN}).text
     actid=[]
@@ -212,7 +217,7 @@ def hear_rate_stream(id):
     hr=[]
     j = json.loads(r)
     if 'message' in j:
-        print('No HR data')
+        status = 'No HR data'
         df = pd.DataFrame()
     else:
         for i in j:
@@ -226,7 +231,27 @@ def hear_rate_stream(id):
             df = pd.DataFrame({'activity_id': actid,'metric':dist,'heart_rate':hr,'metric_type':metrtyp})
         else:
             df = pd.DataFrame()
-    return df
+    if not df.empty:    
+        df.to_sql('heart_rate',con=eng,schema='dwh',if_exists='append',index=False)
+        status = 'HR load successful.'
+    return status
+
+def zone_update(ath,eng):
+    z = get_response('zones')
+    zone_df = df_from_response(z,'zones')
+    zone_df['athlete_id'] = str(ath)
+    zone_df['zone_type'] ='heart_rate'
+    zone_df['zone_num'] = [1,2,3,4,5]
+    with engine.connect() as conn:
+        df_curr = pd.read_sql_table('zones',conn,'dwh')
+        conn.close()
+    if zone_df.equals(df_curr):
+        status = 'No zone update needed.'
+    else:
+        zone_df.to_sql('zones',con=eng,schema='dwh',if_exists='replace',index=False)
+        status = 'Zones have been loaded!'
+    return status
+
     
 def df_init(r,t):
     df = pd.DataFrame()
@@ -234,6 +259,28 @@ def df_init(r,t):
     df_clean = df_reorg(df,'headers.csv','dicts.csv',t)
     return df_clean
 
+def athlete_club_load(eng, met):
+    ath = get_response('athlete')       
+    athletetype = ['athlete','clubs']
+    for at in athletetype:
+        df_ath = df_init(ath,at)
+        if at == 'athlete':
+            athid = df_ath['athlete_id'].values.tolist()
+            cnt, lst = DBfunctions.check_record(at,'athlete_id',athid,eng,met)
+            if cnt!=len(athid):
+                df_ath = df_ath.loc[~df_ath['athlete_id'].isin(lst)]
+                df_ath.to_sql(at,con=eng,schema='dwh', if_exists='append',index=False)
+            else:
+                print('No new athlete to load!')
+        elif at == 'clubs':
+            clubid = df_ath['club_id'].values.tolist()
+            cnt, lst = DBfunctions.check_record(at,'club_id',clubid,eng,met)
+            if cnt!=len(clubid):
+                df_ath = df_ath.loc[~df_ath['club_id'].isin(lst)]
+                df_ath.to_sql(at,con=eng,schema='dwh', if_exists='append',index=False)
+            else:
+                print('No new clubs to load!')
+    return athid
 
 if __name__ == '__main__':
     
@@ -244,31 +291,9 @@ if __name__ == '__main__':
         else:
             ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
         engine, metadata = DBfunctions.db_connect()
-        ath = get_response('athlete')
-        print(ratelimit_checker(ath))        
-        athletetype = ['athlete','clubs']
-        for at in athletetype:
-            df_ath = df_init(ath,at)
-            if at == 'athlete':
-                athid = df_ath['athlete_id'].values.tolist()
-                cnt, lst = DBfunctions.check_record(at,'athlete_id',athid,engine,metadata)
-                if cnt!=len(athid):
-                    df_ath = df_ath.loc[~df_ath['athlete_id'].isin(lst)]
-                    df_ath.to_sql(at,con=engine,schema='dwh', if_exists='append',index=False)
-                else:
-                    print('No new athlete to load!')
-            elif at == 'clubs':
-                clubid = df_ath['club_id'].values.tolist()
-                cnt, lst = DBfunctions.check_record(at,'club_id',clubid,engine,metadata)
-                if cnt!=len(clubid):
-                    df_ath = df_ath.loc[~df_ath['club_id'].isin(lst)]
-                    df_ath.to_sql(at,con=engine,schema='dwh', if_exists='append',index=False)
-                else:
-                    print('No new clubs to load!')
+        athid = athlete_club_load(engine, metadata)
         activitytype = ['activity','activity_metrics','segments','segment_effort','gear','maps','splits','laps','best_efforts']
-        activities = get_activitylist()
-        cnt, lst = DBfunctions.check_record('activity','activity_id',activities,engine,metadata)
-        activities = [x for x in activities if x not in lst]
+        activities = get_activitylist(engine,metadata)
         for act in activities:
             r = get_response('activity',act)
             for typ in activitytype:
@@ -302,17 +327,8 @@ if __name__ == '__main__':
                 else:
                     df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
                     print(str(typ)+' has been loaded!')
-            df_hr = hear_rate_stream(act)
-            if not df_hr.empty:
-                df_hr.to_sql('heart_rate',con=engine,schema='dwh',if_exists='append',index=False)
-        z = get_response('zones')
-        zone_df = df_from_response(z,'zones')
-        zone_df['athlete_id'] = str(athid[0])
-        zone_df['zone_type'] ='heart_rate'
-        zone_df['zone_num'] = [1,2,3,4,5]
-        zone_df.to_sql('zones',con=engine,schema='dwh',if_exists='replace',index=False)
-        print('Zones have been loaded!')
-        print(ratelimit_checker(z))
+            print(hear_rate_stream(act,engine))
+        print(zone_update(athid[0],engine))
             
     except Exception:
         traceback.print_exception()
