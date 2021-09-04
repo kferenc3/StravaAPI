@@ -79,9 +79,12 @@ def insert_record(tbl,rec,eng,met):
         conn.commit()
     return print(rec+' has been inserted in table '+tbl)
 
-
-
-"""engine = db_connect()
-with engine.connect() as conn:
-    result = conn.execute(sqlalchemy.text("select 'hello world'"))
-    print(result.all())"""
+def update_record(tbl,rec,wh,eng,met):
+    table=sqlalchemy.Table(tbl,met,autoload=True,autoload_with=eng,schema='dwh')
+    rec = dict(rec[0])
+    cond = rec[wh]
+    stmt = sqlalchemy.update(table).where(table.c[wh]==cond).values(rec)
+    with eng.connect() as conn:
+        result = conn.execute(stmt)
+        conn.commit()
+    return print(tbl + ' update successful!')
