@@ -22,10 +22,11 @@ URL_BASE = 'https://www.strava.com/api/v3/'
 def exp_checker(exp):
     tdlt = datetime.fromtimestamp(int(exp)) - datetime.today()
     if tdlt.seconds <= 600 or tdlt.days < 0:
-        return('expired')
+        token = token_refresh()
     else:
         print('The token expires in %s minutes' % str(round(tdlt.seconds/60,0)))
-        return('ok')
+        token = os.environ.get('ACCESS_TOKEN')
+    return token
 
 def token_refresh():
     client = Client()
@@ -282,52 +283,51 @@ def athlete_club_load(eng, met):
                 print('No new clubs to load!')
     return athid
 
+def activity_load(activities,activitytype,engine,metadata):
+    for act in activities:
+                r = get_response('activity',act)
+                for typ in activitytype:
+                    df_clean = df_init(r,typ)
+                    if typ == 'segments' and 'segment_id' in df_clean:
+                        segments = df_clean['segment_id'].tolist()
+                        cnt, lst = DBfunctions.check_record('segments','segment_id',segments,engine,metadata)
+                        segments = [x for x in segments if x not in lst]
+                        df_clean = df_clean.loc[df_clean['segment_id'].isin(segments)]
+                        df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                        print(str(typ)+' has been loaded!')
+                        for seg in segments:
+                            p = latlng_encoder(get_response('seg_stream',seg))
+                            df_map = pd.DataFrame({'actsegment_id': seg,'map_type':'segment','polyline': p},index=[0])
+                            df_map.to_sql('maps',con=engine,schema='dwh',if_exists='append',index=False)
+                            print('Segment '+str(seg)+' map has been loaded!')
+                    elif typ == 'gear':
+                        if 'gear_id' in df_clean:
+                            df_clean['gear_type'] = 'shoes'
+                            cnt, lst = DBfunctions.check_record('gear', 'gear_id',df_clean['gear_id'].tolist(),engine,metadata)
+                            if df_clean['gear_id'].values in lst:
+                                DBfunctions.update_record('gear',df_clean.to_dict('records'),'gear_id',engine,metadata)
+                            else:
+                                df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                                print(str(typ)+' has been loaded!')
+                    elif typ == 'maps':
+                        df_test = df_clean.isna()
+                        if df_test['polyline'].values!=True:
+                            df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                            print('Activity map'+'-'+str(act)+' have been loaded!')
+                    else:
+                        df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
+                        print(str(typ)+' has been loaded!')
+                print(hear_rate_stream(act,engine))
+
 if __name__ == '__main__':
     
     try:
-        exp = exp_checker(EXPIRES_AT)
-        if exp != 'ok':
-            ACCESS_TOKEN = token_refresh()
-        else:
-            ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
+        ACCESS_TOKEN=exp_checker(EXPIRES_AT)
         engine, metadata = DBfunctions.db_connect()
         athid = athlete_club_load(engine, metadata)
         activitytype = ['activity','activity_metrics','segments','segment_effort','gear','maps','splits','laps','best_efforts']
         activities = get_activitylist(engine,metadata)
-        for act in activities:
-            r = get_response('activity',act)
-            for typ in activitytype:
-                df_clean = df_init(r,typ)
-                if typ == 'segments' and 'segment_id' in df_clean:
-                    segments = df_clean['segment_id'].tolist()
-                    cnt, lst = DBfunctions.check_record('segments','segment_id',segments,engine,metadata)
-                    segments = [x for x in segments if x not in lst]
-                    df_clean = df_clean.loc[df_clean['segment_id'].isin(segments)]
-                    df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
-                    print(str(typ)+' has been loaded!')
-                    for seg in segments:
-                        p = latlng_encoder(get_response('seg_stream',seg))
-                        df_map = pd.DataFrame({'actsegment_id': seg,'map_type':'segment','polyline': p},index=[0])
-                        df_map.to_sql('maps',con=engine,schema='dwh',if_exists='append',index=False)
-                        print('Segment '+str(seg)+' map has been loaded!')
-                elif typ == 'gear':
-                    if 'gear_id' in df_clean:
-                        df_clean['gear_type'] = 'shoes'
-                        cnt, lst = DBfunctions.check_record('gear', 'gear_id',df_clean['gear_id'].tolist(),engine,metadata)
-                        if df_clean['gear_id'].values in lst:
-                            DBfunctions.update_record('gear',df_clean.to_dict('records'),'gear_id',engine,metadata)
-                        else:
-                            df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
-                            print(str(typ)+' has been loaded!')
-                elif typ == 'maps':
-                    df_test = df_clean.isna()
-                    if df_test['polyline'].values!=True:
-                        df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
-                        print('Activity map'+'-'+str(act)+' have been loaded!')
-                else:
-                    df_clean.to_sql(typ,con=engine,schema='dwh',if_exists='append',index=False)
-                    print(str(typ)+' has been loaded!')
-            print(hear_rate_stream(act,engine))
+        activity_load(activities,activitytype,engine,metadata)
         print(zone_update(athid[0],engine))
             
     except Exception:
