@@ -1,5 +1,6 @@
 from datetime import timedelta
 from datetime import datetime
+from logging import log
 import numpy
 from stravalib import Client
 import time as t
@@ -17,12 +18,14 @@ CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
 REFRESH_TOKEN = os.environ.get('REFRESH_TOKEN')
 EXPIRES_AT = os.environ.get('EXPIRES_AT')
 URL_BASE = 'https://www.strava.com/api/v3/'
-
+log_df = pd.DataFrame()
 
 def exp_checker(exp):
     tdlt = datetime.fromtimestamp(int(exp)) - datetime.today()
+    global log_df
     if tdlt.seconds <= 600 or tdlt.days < 0:
         token = token_refresh()
+        log_df = log_df.append({'data':'token','newdata':'True','new_count':1,'success':'True','error_msg':'NULL'},ignore_index=True)
     else:
         print('The token expires in %s minutes' % str(round(tdlt.seconds/60,0)))
         token = os.environ.get('ACCESS_TOKEN')
@@ -263,6 +266,7 @@ def df_init(r,t):
 def athlete_club_load(eng, met):
     ath = get_response('athlete')       
     athletetype = ['athlete','clubs']
+    global log_df
     for at in athletetype:
         df_ath = df_init(ath,at)
         if at == 'athlete':
@@ -273,6 +277,7 @@ def athlete_club_load(eng, met):
                 df_ath.to_sql(at,con=eng,schema='dwh', if_exists='append',index=False)
             else:
                 print('No new athlete to load!')
+                log_df = log_df.append({'data':'athlete','newdata':'False','new_count':0,'success':'True','error_msg':'NULL'},ignore_index=True)
         elif at == 'clubs':
             clubid = df_ath['club_id'].values.tolist()
             cnt, lst = DBfunctions.check_record(at,'club_id',clubid,eng,met)
@@ -329,6 +334,7 @@ if __name__ == '__main__':
         activities = get_activitylist(engine,metadata)
         activity_load(activities,activitytype,engine,metadata)
         print(zone_update(athid[0],engine))
+        "print(log_df)"
             
     except Exception:
         traceback.print_exception()
